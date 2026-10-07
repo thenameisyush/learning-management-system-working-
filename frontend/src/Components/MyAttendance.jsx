@@ -5,6 +5,7 @@ import {
   FiSearch,
   FiUsers,
 } from "react-icons/fi";
+import axiosInstance from "../Helpers/axiosInstance";
 
 const getToday = () => {
   const date = new Date();
@@ -50,31 +51,24 @@ const MyAttendance = () => {
 
   useEffect(() => {
     const fetchAttendance = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  try {
+    setLoading(true);
+    setError(null);
 
-        const res = await fetch(
-          "http://localhost:3000/api/v1/attendance/all",
-          {
-            credentials: "include",
-          }
-        );
+    const res = await axiosInstance.get("/attendance/all");
 
-        if (!res.ok) {
-          throw new Error("Failed to fetch attendance");
-        }
-
-        const data = await res.json();
-
-        setAttendance(data?.data || []);
-      } catch (err) {
-        console.error("Attendance Error:", err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
+    setAttendance(res?.data?.data || []);
+  } catch (err) {
+    console.error("Attendance Error:", err);
+    setError(
+      err?.response?.data?.message ||
+      err?.message ||
+      "Failed to fetch attendance"
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
     fetchAttendance();
   }, []);
