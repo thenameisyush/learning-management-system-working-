@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import imges from "../Assets/Images/loginn.png";
 import Footer from "../Components/Footer";
 import { login } from "../Redux/Slices/AuthSlice";
+import axiosInstance from "../Helpers/axiosInstance";
 
 function Login() {
   const dispatch = useDispatch();
@@ -53,29 +54,24 @@ function Login() {
       toast.success("Login Successful!");
 
       // Mark attendance automatically after successful login
-      try {
-        const attendanceRes = await fetch(
-          "http://localhost:3000/api/v1/attendance/mark",
-          {
-            method: "POST",
-            credentials: "include",
-          }
-        );
+     
+try {
+  const attendanceRes = await axiosInstance.post(
+    "/attendance/mark"
+  );
 
-        const attendanceData = await attendanceRes.json();
+  const attendanceData = attendanceRes?.data;
 
-        if (attendanceRes.ok) {
-          toast.success(
-            attendanceData?.message || "Attendance marked successfully"
-          );
-        }
-      } catch (attendanceError) {
-        console.error("Attendance Error:", attendanceError);
+  if (attendanceRes?.status >= 200 && attendanceRes?.status < 300) {
+    toast.success(
+      attendanceData?.message || "Attendance marked successfully"
+    );
+  }
+} catch (attendanceError) {
+  console.error("Attendance Error:", attendanceError);
 
-        // Attendance failure should not block login
-        toast.error("Login successful, but attendance could not be marked");
-      }
-
+  toast.error("Login successful, but attendance could not be marked");
+}
       navigate("/");
     } catch (error) {
       console.error("Login Error:", error);
