@@ -45,6 +45,14 @@ app.get('/ping', (_req, res) => {
     res.send('Pong');
 });
 
+// Root health check
+app.get('/', (_req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'LMS Backend API is running 🚀'
+    });
+});
+
 // ================= EXISTING ROUTES =================
 
 import userRoutes from './routes/user.routes.js';
