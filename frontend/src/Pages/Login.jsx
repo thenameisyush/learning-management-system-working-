@@ -63,20 +63,30 @@ function Login() {
       // Mark attendance after successful login.
       // The backend must return marked: true only for a newly created record.
       try {
-        const attendanceRes = await axiosInstance.post("/attendance/mark");
-        const attendanceData = attendanceRes?.data;
+  const attendanceRes = await axiosInstance.post("/attendance/mark");
+  const attendanceData = attendanceRes?.data;
 
-        if (attendanceData?.marked === true) {
-          toast.success("Attendance marked successfully");
-        }
-      } catch (attendanceError) {
-        // Attendance failure should not prevent a successful login.
-        console.error(
-          "Attendance Error:",
-          attendanceError?.response?.data?.message ||
-            attendanceError?.message
-        );
-      }
+  if (attendanceData?.marked === true) {
+    toast.success("Attendance marked successfully");
+  } else if (attendanceData?.success === true) {
+    toast("Your attendance is already marked for today");
+  } else {
+    toast.error(
+      attendanceData?.message || "Could not mark attendance"
+    );
+  }
+} catch (attendanceError) {
+  console.error("Attendance Error:", {
+    status: attendanceError?.response?.status,
+    data: attendanceError?.response?.data,
+    message: attendanceError?.message,
+  });
+
+  toast.error(
+    attendanceError?.response?.data?.message ||
+      "Login successful, but attendance could not be marked."
+  );
+}
 
       navigate("/");
     } catch (error) {
