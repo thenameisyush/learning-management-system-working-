@@ -9,6 +9,17 @@ const verifyAsync = promisify(jwt.verify);
  * Accepts token from either cookies (req.cookies.token) OR Authorization header (Bearer <token>)
  * Verifies JWT and attaches decoded payload to req.user
  */
+
+const getJwtSecret = () => {
+  const secret = process.env.JWT_SECRET;
+
+  if (!secret) {
+    throw new Error("JWT_SECRET is not configured");
+  }
+
+  return secret;
+};
+
 export const isLoggedIn = async (req, res, next) => {
   try {
     // Try cookie first, then Authorization header
@@ -29,7 +40,7 @@ export const isLoggedIn = async (req, res, next) => {
     // Verify token
     let decoded;
     try {
-      decoded = await verifyAsync(token, process.env.JWT_SECRET || 'secretkey');
+      decoded = await verifyAsync(token, getJwtSecret());
     } catch (err) {
       return res.status(401).json({ message: "Invalid or expired token. Please login again." });
     }

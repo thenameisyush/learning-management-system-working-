@@ -45,17 +45,6 @@ const authorizeView = async (user, assignment, course) => {
   return false;
 };
 
-const parseIdList = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) return value.map(String);
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
-  } catch {
-    return String(value).split(',').map((s) => s.trim()).filter(Boolean);
-  }
-};
-
 const toClientAssignment = (a, extra = {}) => ({
   _id: a._id,
   title: a.title,
@@ -68,9 +57,9 @@ const toClientAssignment = (a, extra = {}) => ({
 
   // Teacher/Admin ka Google Drive assignment link
   driveLink: a.driveLink || "",
-  attachments: Array.isArray(a.attachments)
-  ? a.attachments
-  : [],
+  // Assignment files are stored on Google Drive. Kept as an empty legacy
+  // field so older clients do not break; this API does not upload file blobs.
+  attachments: [],
 
   createdAt: a.createdAt,
   updatedAt: a.updatedAt,
@@ -183,7 +172,7 @@ export const createAssignment = asyncHandler(
     const assignment = await Assignment.create({
   ...data,
   course: course._id,
-  createdBy: req.user.id || req.user.id || req.user._id,
+  createdBy: req.user.id || req.user._id,
   driveLink,
 });
 
@@ -231,15 +220,6 @@ export const getAssignments = asyncHandler(async (req, res) => {
 
     const isManager = isCourseManager(user, course);
     const hasAccess = await hasCourseAccess(user, course);
-
-    console.log("ASSIGNMENT DEBUG:", {
-  userId: String(user.id),
-  userRole: user.role,
-  courseId: String(course._id),
-  instructorId: String(course.instructor),
-  isManager,
-  hasAccess,
-});
 
     if (!isManager && !hasAccess) {
       throw new AppError(
@@ -526,30 +506,6 @@ export const deleteAssignment = asyncHandler(async (req, res) => {
 
   res.status(200).json({ success: true, message: 'Assignment deleted' });
 });
-
-/** GET /api/v1/assignments/:id/attachments/:fileId[?download=1] */
-/**
- * GET /api/v1/assignments/:id/attachments/:fileId[?download=1]
- */
-export const streamAssignmentAttachment = asyncHandler(
-  async (req, res, next) => {
-    const { assignment, course } = await loadAssignment(req.params.id);
-
-    await authorizeView(req.user, assignment, course);
-
-    const file = assignment.attachments.find(
-      (f) => String(f._id) === req.params.fileId
-    );
-
-    if (!file) {
-      return next(new AppError("File not found", 404));
-    }
-
-    await streamStoredFile(res, file, {
-      download: req.query.download === "1",
-    });
-  }
-);
 
 // ---------------------------------------------------------------------------
 // SUBMISSIONS

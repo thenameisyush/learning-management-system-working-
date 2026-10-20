@@ -1,3 +1,4 @@
+
 import "remixicon/fonts/remixicon.css";
 import { useState } from "react";
 import { toast } from "react-hot-toast";
@@ -33,7 +34,7 @@ function Login() {
   async function onLogin(event) {
     event.preventDefault();
 
-    if (!loginData.email || !loginData.password) {
+    if (!loginData.email.trim() || !loginData.password) {
       toast.error("Please fill all the details");
       return;
     }
@@ -44,38 +45,48 @@ function Login() {
       // Login via Redux
       const response = await dispatch(login(loginData));
 
-      if (!response?.payload?.success) {
+      // Handle rejected Redux Toolkit thunk as well as unsuccessful payloads.
+      if (
+        response?.meta?.requestStatus === "rejected" ||
+        !response?.payload?.success
+      ) {
         toast.error(
-          response?.payload?.message || "Invalid credentials"
+          response?.payload?.message ||
+            response?.error?.message ||
+            "Invalid credentials"
         );
         return;
       }
 
       toast.success("Login Successful!");
 
-      // Mark attendance automatically after successful login
-     
-try {
-  const attendanceRes = await axiosInstance.post(
-    "/attendance/mark"
-  );
+      // Mark attendance after successful login.
+      // The backend must return marked: true only for a newly created record.
+      try {
+        const attendanceRes = await axiosInstance.post("/attendance/mark");
+        const attendanceData = attendanceRes?.data;
 
-  const attendanceData = attendanceRes?.data;
+        if (attendanceData?.marked === true) {
+          toast.success("Attendance marked successfully");
+        }
+      } catch (attendanceError) {
+        // Attendance failure should not prevent a successful login.
+        console.error(
+          "Attendance Error:",
+          attendanceError?.response?.data?.message ||
+            attendanceError?.message
+        );
+      }
 
-  if (attendanceRes?.status >= 200 && attendanceRes?.status < 300) {
-    toast.success(
-      attendanceData?.message || "Attendance marked successfully"
-    );
-  }
-} catch (attendanceError) {
-  console.error("Attendance Error:", attendanceError);
-
-  toast.error("Login successful, but attendance could not be marked");
-}
       navigate("/");
     } catch (error) {
       console.error("Login Error:", error);
-      toast.error("Something went wrong during login");
+
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Something went wrong during login"
+      );
     } finally {
       setLoading(false);
 

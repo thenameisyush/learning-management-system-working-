@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { AiOutlineArrowLeft } from "react-icons/ai";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import HomeLayout from "../../Layouts/HomeLayout";
 
@@ -16,6 +16,11 @@ import axiosInstance from "../../Helpers/axiosInstance";
 function CreateCourse() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const { data: currentUser = {}, role = "" } = useSelector(
+    (state) => state.auth || {}
+  );
+  const isAdmin = role === "ADMIN";
+  const isTeacher = role === "TEACHER";
   const { id } = useParams();
 
   const isEditMode = Boolean(id);
@@ -39,6 +44,9 @@ function CreateCourse() {
   // GET ALL TEACHERS
   // =========================
   useEffect(() => {
+    // Only admins can assign a course to a selected teacher.
+    if (!isAdmin) return;
+
     const loadTeachers = async () => {
       try {
         setLoadingTeachers(true);
@@ -61,7 +69,7 @@ function CreateCourse() {
     };
 
     loadTeachers();
-  }, []);
+  }, [isAdmin]);
 
   // =========================
   // LOAD COURSE FOR EDIT
@@ -89,10 +97,9 @@ function CreateCourse() {
           title: course?.title || "",
           category: course?.category || "",
           createdBy: course?.createdBy || "",
-          instructor:
-            course?.instructor?._id ||
-            course?.instructor ||
-            "",
+          instructor: isTeacher
+            ? (currentUser?._id || currentUser?.id || course?.instructor?._id || course?.instructor || "")
+            : (course?.instructor?._id || course?.instructor || ""),
           description: course?.description || "",
           price: course?.price ?? "",
           duration: course?.duration || "",
@@ -107,7 +114,7 @@ function CreateCourse() {
     };
 
     loadCourse();
-  }, [dispatch, id, isEditMode, navigate]);
+  }, [dispatch, id, isEditMode, navigate, isTeacher, currentUser?._id, currentUser?.id]);
 
   // =========================
   // IMAGE UPLOAD
@@ -146,6 +153,8 @@ function CreateCourse() {
   // TEACHER SELECT
   // =========================
   function handleTeacherChange(e) {
+    if (!isAdmin) return;
+
     const teacherId = e.target.value;
 
     const selectedTeacher = teachers.find(
@@ -165,11 +174,15 @@ function CreateCourse() {
   async function onFormSubmit(e) {
     e.preventDefault();
 
+    const instructorId = isTeacher
+      ? (currentUser?._id || currentUser?.id || userInput.instructor)
+      : userInput.instructor;
+
     if (
       !userInput.title ||
       !userInput.description ||
       !userInput.category ||
-      !userInput.instructor
+      !instructorId
     ) {
       toast.error(
         "Course Title, Description, Category and Teacher are required"
@@ -187,9 +200,10 @@ function CreateCourse() {
     // =========================
     if (!isEditMode) {
      const courseData = {
-  ...userInput,
-  instructorId: userInput.instructor,
-};
+        ...userInput,
+        createdBy: isTeacher ? (currentUser?.fullName || userInput.createdBy) : userInput.createdBy,
+        instructorId,
+      };
 
 const response = await dispatch(
   createNewCourse(courseData)
@@ -207,9 +221,10 @@ const response = await dispatch(
     // UPDATE COURSE
     // =========================
     const courseData = {
-  ...userInput,
-  instructorId: userInput.instructor,
-};
+      ...userInput,
+      createdBy: isTeacher ? (currentUser?.fullName || userInput.createdBy) : userInput.createdBy,
+      instructorId,
+    };
 
 const response = await dispatch(
   updateCourse({
@@ -226,199 +241,160 @@ const response = await dispatch(
 
   return (
     <HomeLayout>
-      <div className="min-h-screen flex items-center justify-center bg-black relative overflow-hidden">
-        {/* Background Glow */}
-        <div className="absolute w-[500px] h-[500px] bg-purple-600 blur-[150px] opacity-30 top-[-100px] left-[-100px]" />
+      <main className="relative min-h-screen overflow-hidden bg-slate-950 px-4 py-8 text-white sm:px-6 lg:px-8">
+        <div className="pointer-events-none absolute -left-32 -top-32 h-80 w-80 rounded-full bg-violet-600/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-40 -right-24 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl" />
 
-        <div className="absolute w-[400px] h-[400px] bg-yellow-500 blur-[150px] opacity-20 bottom-[-100px] right-[-100px]" />
-
-        <form
-          onSubmit={onFormSubmit}
-          className="relative z-10 backdrop-blur-xl bg-white/5 border border-white/10 shadow-[0_0_40px_rgba(255,255,255,0.1)] rounded-3xl p-10 w-[900px] text-white"
-        >
-          {/* Back Button */}
+        <div className="relative mx-auto max-w-6xl">
           <Link
             to="/courses"
-            className="absolute top-6 left-6 text-2xl hover:scale-125 transition"
+            className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-violet-400 hover:text-white"
           >
             <AiOutlineArrowLeft />
+            Back to courses
           </Link>
 
-          {/* Heading */}
-          <h1 className="text-4xl font-bold text-center mb-10 bg-gradient-to-r from-yellow-400 via-orange-500 to-pink-500 bg-clip-text text-transparent">
-            {isEditMode
-              ? "✏️ Edit Course"
-              : "🚀 Create New Course"}
-          </h1>
-
-          <div className="grid grid-cols-2 gap-10">
-            {/* =========================
-                LEFT SIDE
-            ========================== */}
-            <div className="space-y-8">
-              {/* Image Upload */}
-              <label className="group cursor-pointer relative block border-2 border-dashed border-gray-500 rounded-2xl overflow-hidden hover:border-yellow-400 transition-all">
-                {userInput.previewImage ? (
-                  <img
-                    src={userInput.previewImage}
-                    className="h-52 w-full object-cover group-hover:scale-105 transition"
-                    alt="Course thumbnail"
-                  />
-                ) : (
-                  <div className="h-52 flex flex-col items-center justify-center text-gray-400 group-hover:text-yellow-400 transition">
-                    <p className="text-lg font-semibold">
-                      Upload Thumbnail
-                    </p>
-
-                    <p className="text-sm">
-                      Click or Drag Image
-                    </p>
-                  </div>
-                )}
-
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                />
-              </label>
-
-              {/* Course Title */}
-              <div className="relative">
-                <input
-                  type="text"
-                  name="title"
-                  value={userInput.title}
-                  onChange={handleUserInput}
-                  required
-                  className="peer w-full bg-transparent border-b-2 border-gray-500 focus:border-yellow-400 outline-none py-2"
-                />
-
-                <label className="absolute left-0 top-2 text-gray-400 text-sm peer-focus:-top-4 peer-focus:text-yellow-400 transition-all">
-                  Course Title
-                </label>
-              </div>
+          <div className="mb-7 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-violet-300">
+                Course management
+              </p>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                {isEditMode ? "Edit course" : "Create a new course"}
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
+                Add the course information, choose an instructor, and make your learning content ready for students.
+              </p>
             </div>
-
-            {/* =========================
-                RIGHT SIDE
-            ========================== */}
-            <div className="space-y-8">
-              {/* Teacher Dropdown */}
-              <div className="relative">
-                <label className="block text-gray-400 text-sm mb-2">
-                  Select Teacher
-                </label>
-
-                <select
-                  name="instructor"
-                  value={userInput.instructor}
-                  onChange={handleTeacherChange}
-                  required
-                  disabled={loadingTeachers}
-                  className="w-full bg-black/40 border-b-2 border-gray-500 focus:border-yellow-400 outline-none py-3 text-white"
-                >
-                  <option
-                    value=""
-                    className="bg-gray-900 text-gray-400"
-                  >
-                    {loadingTeachers
-                      ? "Loading teachers..."
-                      : "Select a teacher"}
-                  </option>
-
-                  {teachers.map((teacher) => (
-                    <option
-                      key={teacher._id}
-                      value={teacher._id}
-                      className="bg-gray-900 text-white"
-                    >
-                      {teacher.fullName} ({teacher.email})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Category */}
-              <div className="relative">
-                <input
-                  type="text"
-                  name="category"
-                  value={userInput.category}
-                  onChange={handleUserInput}
-                  required
-                  className="peer w-full bg-transparent border-b-2 border-gray-500 focus:border-yellow-400 outline-none py-2"
-                />
-
-                <label className="absolute left-0 top-2 text-gray-400 text-sm peer-focus:-top-4 peer-focus:text-yellow-400 transition-all">
-                  Category
-                </label>
-              </div>
-
-              {/* Price + Duration */}
-              <div className="grid grid-cols-2 gap-6">
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    name="price"
-                    value={userInput.price}
-                    onChange={handleUserInput}
-                    placeholder="0 = free"
-                    className="peer w-full bg-transparent border-b-2 border-gray-500 focus:border-yellow-400 outline-none py-2"
-                  />
-
-                  <label className="absolute left-0 -top-4 text-gray-400 text-sm">
-                    Price (optional)
-                  </label>
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="text"
-                    name="duration"
-                    value={userInput.duration}
-                    onChange={handleUserInput}
-                    placeholder="e.g. 6 weeks"
-                    className="peer w-full bg-transparent border-b-2 border-gray-500 focus:border-yellow-400 outline-none py-2"
-                  />
-
-                  <label className="absolute left-0 -top-4 text-gray-400 text-sm">
-                    Duration (optional)
-                  </label>
-                </div>
-              </div>
-
-              {/* Description */}
-              <div className="relative">
-                <textarea
-                  name="description"
-                  value={userInput.description}
-                  onChange={handleUserInput}
-                  required
-                  className="peer w-full bg-transparent border-b-2 border-gray-500 focus:border-yellow-400 outline-none py-2 h-24 resize-none"
-                />
-
-                <label className="absolute left-0 top-2 text-gray-400 text-sm peer-focus:-top-4 peer-focus:text-yellow-400 transition-all">
-                  Course Description
-                </label>
-              </div>
-            </div>
+            <span className="inline-flex w-fit items-center gap-2 rounded-full border border-slate-800 bg-slate-900/80 px-3.5 py-2 text-xs text-slate-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              {isEditMode ? "Editing course" : "New course"}
+            </span>
           </div>
 
-          {/* Button */}
-          <button
-            type="submit"
-            disabled={loadingTeachers}
-            className="mt-10 w-full py-3 rounded-xl font-semibold text-lg bg-gradient-to-r from-yellow-500 via-orange-500 to-pink-500 hover:scale-105 transition-all duration-300 shadow-[0_0_20px_rgba(255,165,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isEditMode
-              ? "Update Course"
-              : "Create Course"}
-          </button>
-        </form>
-      </div>
+          <form onSubmit={onFormSubmit} className="grid gap-6 lg:grid-cols-[0.85fr_1.4fr]">
+            {/* Thumbnail panel */}
+            <section className="h-fit rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl shadow-black/20 sm:p-6">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-500/15 text-xl text-violet-300">
+                  <span aria-hidden="true">▧</span>
+                </div>
+                <div>
+                  <h2 className="font-semibold">Course thumbnail</h2>
+                  <p className="mt-0.5 text-xs text-slate-400">Choose a clear cover image</p>
+                </div>
+              </div>
+
+              <label className="group block cursor-pointer overflow-hidden rounded-2xl border border-dashed border-slate-700 bg-slate-950/70 transition hover:border-violet-400">
+                {userInput.previewImage ? (
+                  <div className="relative">
+                    <img
+                      src={userInput.previewImage}
+                      alt="Course thumbnail preview"
+                      className="h-56 w-full object-cover transition duration-300 group-hover:scale-[1.02]"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-4 pt-10">
+                      <span className="text-sm font-medium text-white">Click to change thumbnail</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex min-h-56 flex-col items-center justify-center px-5 py-8 text-center">
+                    <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-800 text-3xl text-violet-300 transition group-hover:bg-violet-500/15">
+                      ↑
+                    </div>
+                    <p className="font-semibold text-slate-200">Upload thumbnail</p>
+                    <p className="mt-1 text-sm text-slate-500">Click to browse image files</p>
+                  </div>
+                )}
+                <input type="file" className="sr-only" accept="image/*" onChange={handleImageUpload} />
+              </label>
+
+              <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                <p className="text-sm font-medium text-slate-200">Thumbnail tip</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Use an image that clearly represents the course. When editing, leave the image unchanged if you do not want to replace it.
+                </p>
+              </div>
+            </section>
+
+            {/* Details panel */}
+            <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl shadow-black/20 sm:p-6 lg:p-7">
+              <div className="mb-6 flex items-center gap-3 border-b border-slate-800 pb-5">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500/10 text-xl text-cyan-300">
+                  <span aria-hidden="true">▤</span>
+                </div>
+                <div>
+                  <h2 className="font-semibold">Course information</h2>
+                  <p className="mt-0.5 text-sm text-slate-400">Fields marked * are required</p>
+                </div>
+              </div>
+
+              <div className="grid gap-5 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <label htmlFor="title" className="mb-2 block text-sm font-medium text-slate-300">Course title <span className="text-rose-400">*</span></label>
+                  <input id="title" type="text" name="title" value={userInput.title} onChange={handleUserInput} placeholder="e.g. Full Stack Web Development" required className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10" />
+                </div>
+
+                <div>
+                  {isAdmin ? (
+                    <>
+                      <label htmlFor="instructor" className="mb-2 block text-sm font-medium text-slate-300">Select teacher <span className="text-rose-400">*</span></label>
+                      <select id="instructor" name="instructor" value={userInput.instructor} onChange={handleTeacherChange} required disabled={loadingTeachers} className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3.5 text-sm text-white outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-wait disabled:opacity-60">
+                        <option value="" className="bg-slate-900">{loadingTeachers ? "Loading teachers..." : "Choose a teacher"}</option>
+                        {teachers.map((teacher) => (
+                          <option key={teacher._id} value={teacher._id} className="bg-slate-900">
+                            {teacher.fullName} {teacher.email ? `(${teacher.email})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <>
+                      <label htmlFor="assignedTeacher" className="mb-2 block text-sm font-medium text-slate-300">Assigned teacher</label>
+                      <div id="assignedTeacher" className="flex min-h-[50px] items-center rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3.5 text-sm text-slate-200">
+                        {currentUser?.fullName || "Logged-in teacher"}
+                        <span className="ml-auto rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-300">You</span>
+                      </div>
+                      <p className="mt-1.5 text-xs text-slate-500">This course will remain assigned to your account.</p>
+                    </>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="category" className="mb-2 block text-sm font-medium text-slate-300">Category <span className="text-rose-400">*</span></label>
+                  <input id="category" type="text" name="category" value={userInput.category} onChange={handleUserInput} placeholder="e.g. Programming" required className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10" />
+                </div>
+
+                <div>
+                  <label htmlFor="price" className="mb-2 block text-sm font-medium text-slate-300">Price <span className="text-slate-500">(₹)</span></label>
+                  <input id="price" type="number" min="0" name="price" value={userInput.price} onChange={handleUserInput} placeholder="0 = Free" className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10" />
+                  <p className="mt-1.5 text-xs text-slate-500">Enter 0 for a free course.</p>
+                </div>
+
+                <div>
+                  <label htmlFor="duration" className="mb-2 block text-sm font-medium text-slate-300">Duration</label>
+                  <input id="duration" type="text" name="duration" value={userInput.duration} onChange={handleUserInput} placeholder="e.g. 6 weeks" className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10" />
+                  <p className="mt-1.5 text-xs text-slate-500">Example: 10 hours or 6 weeks.</p>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label htmlFor="description" className="mb-2 block text-sm font-medium text-slate-300">Course description <span className="text-rose-400">*</span></label>
+                  <textarea id="description" name="description" value={userInput.description} onChange={handleUserInput} placeholder="Explain what students will learn in this course..." required rows={5} className="w-full resize-y rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-3.5 text-sm leading-6 text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10" />
+                </div>
+              </div>
+
+              <div className="mt-7 flex flex-col-reverse gap-3 border-t border-slate-800 pt-5 sm:flex-row sm:justify-end">
+                <Link to="/courses" className="inline-flex items-center justify-center rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white">
+                  Cancel
+                </Link>
+                <button type="submit" disabled={isAdmin && loadingTeachers} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-950/40 transition hover:bg-violet-400 focus:outline-none focus:ring-4 focus:ring-violet-500/20 disabled:cursor-not-allowed disabled:opacity-50">
+                  {isEditMode ? "Update course" : "Create course"}
+                </button>
+              </div>
+            </section>
+          </form>
+        </div>
+      </main>
     </HomeLayout>
   );
 }

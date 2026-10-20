@@ -63,19 +63,34 @@ const courseSchema = new Schema(
     },
 
     numberOfVideos: {
-  type: Number,
-  default: 0,
-},
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // Optional-video phase fields used by course create/update APIs.
+    // Defaults preserve compatibility with older course documents.
+    price: {
+      type: Number,
+      default: 0,
+      min: [0, 'Price cannot be negative'],
+    },
+
+    duration: {
+      type: String,
+      default: '',
+      trim: true,
+    },
 
     createdBy: {
       type: String,
       required: [true, 'Course instructor name is required'],
     },
     instructor: {
-  type: Schema.Types.ObjectId,
-  ref: 'User',
-  required: true,
-},
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      // Keep optional so pre-existing courses without an owner remain readable.
+    },
   },
   {
     timestamps: true,

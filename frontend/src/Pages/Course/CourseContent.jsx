@@ -68,7 +68,12 @@ export default function CourseContent() {
         );
 
       case "attendance":
-        return <AttendancePanel />;
+  return (
+    <AttendancePanel
+      courseId={course._id}
+      course={course}
+    />
+  );
 
       case "progress":
         return <ProgressPanel />;

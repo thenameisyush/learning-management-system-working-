@@ -375,7 +375,7 @@ function HomeLayout({ children }) {
                   CREATE COURSE
               ================================================= */}
 
-              {isLoggedIn && role === "ADMIN" && (
+              {isLoggedIn && ["ADMIN", "TEACHER"].includes(role) && (
                 <li>
                   <Link
                     to="/course/create"

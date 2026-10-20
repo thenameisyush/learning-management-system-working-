@@ -9,6 +9,8 @@ import AppError from '../utils/AppError.js';
 import {
   hasCourseAccess,
   isCourseManager,
+  listManagedCourseIds,
+  listAccessibleCourseIds,
 } from '../utils/courseAccess.js';
 
 import { parseAnswerList } from '../utils/quizGrading.js';

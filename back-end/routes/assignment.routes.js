@@ -1,6 +1,4 @@
-import { Router } from "express";
-import multer from "multer";
-import path from "path";
+import { Router } from 'express';
 
 import {
   createAssignment,
@@ -14,78 +12,54 @@ import {
   gradeSubmission,
   submitAssignment,
   updateAssignment,
-  streamAssignmentAttachment,
-} from "../controllers/assignment.controller.js";
+} from '../controllers/assignment.controller.js';
 
 import {
   authorizeRoles,
   isLoggedIn,
-} from "../middlewares/auth.middleware.js";
+} from '../middlewares/auth.middleware.js';
 
-import AppError from "../utils/AppError.js";
+import AppError from '../utils/AppError.js';
 
 const router = Router();
 
-const MANAGERS = ["ADMIN", "TEACHER"];
+const MANAGERS = ['ADMIN', 'TEACHER'];
 
-// Authentication for every assignment route
+// Authentication for all assignment routes
 router.use(isLoggedIn);
 
-/* -------------------------------------------------------------------------- */
-/* File Upload                                                                */
-/* -------------------------------------------------------------------------- */
+// Direct file uploads are disabled.
+// Assignments and submissions use Google Drive links.
+const rejectDirectFileUploads = (req, res, next) => {
+  if (req.is('multipart/form-data')) {
+    return next(
+      new AppError(
+        'Direct file uploads are disabled. Please provide a Google Drive link instead.',
+        400
+      )
+    );
+  }
 
-const upload = multer({
-  dest: "uploads/",
+  return next();
+};
 
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-
-    // Unsupported executable files
-    if (ext === ".exe") {
-      return cb(new AppError("Unsupported file type", 400));
-    }
-
-    cb(null, true);
-  },
-});
-
-/* -------------------------------------------------------------------------- */
-/* Assignment Management                                                      */
-/* -------------------------------------------------------------------------- */
-
-// List assignments
-// GET /api/v1/assignments
-// GET /api/v1/assignments?courseId=...
+// List and create assignments
 router
-  .route("/")
+  .route('/')
   .get(getAssignments)
   .post(
+    rejectDirectFileUploads,
     authorizeRoles(...MANAGERS),
-    upload.array("attachments", 5),
     createAssignment
   );
 
-/* -------------------------------------------------------------------------- */
-/* Assignment Attachment                                                     */
-/* -------------------------------------------------------------------------- */
-
-// GET /api/v1/assignments/:id/attachments/:fileId
-router.get(
-  "/:id/attachments/:fileId",
-  streamAssignmentAttachment
-);
-
-/* -------------------------------------------------------------------------- */
-/* Update / Delete Assignment                                                 */
-/* -------------------------------------------------------------------------- */
-
+// Get, update and delete an assignment
 router
-  .route("/:id")
+  .route('/:id')
   .get(getAssignmentById)
   .put(
+    rejectDirectFileUploads,
     authorizeRoles(...MANAGERS),
-    upload.array("attachments", 5),
     updateAssignment
   )
   .delete(
@@ -93,50 +67,42 @@ router
     deleteAssignment
   );
 
-/* -------------------------------------------------------------------------- */
-/* Student Submission                                                         */
-/* -------------------------------------------------------------------------- */
-
-// Student submits text + Google Drive link
+// Student submission: text and/or Google Drive link
 router.post(
-  "/:id/submit",
-  upload.array("files", 3),
+  '/:id/submit',
+  rejectDirectFileUploads,
   submitAssignment
 );
 
-// Student requests resubmission
+// Resubmission requests
 router.post(
-  "/:id/request-resubmit",
+  '/:id/request-resubmit',
   requestResubmit
 );
 
-// Student's own submission
+// Current student's submission
 router.get(
-  "/:id/my-submission",
+  '/:id/my-submission',
   getMySubmission
 );
 
-/* -------------------------------------------------------------------------- */
-/* Teacher / Admin Submissions                                                */
-/* -------------------------------------------------------------------------- */
-
-// View all student submissions
+// Teacher/admin views submissions
 router.get(
-  "/:id/submissions",
+  '/:id/submissions',
   authorizeRoles(...MANAGERS),
   getSubmissions
 );
 
-// Grade submission
+// Grade a submission
 router.put(
-  "/submissions/:submissionId/grade",
+  '/submissions/:submissionId/grade',
   authorizeRoles(...MANAGERS),
   gradeSubmission
 );
 
 // Allow resubmission
 router.put(
-  "/submissions/:submissionId/allow-resubmit",
+  '/submissions/:submissionId/allow-resubmit',
   allowResubmit
 );
 

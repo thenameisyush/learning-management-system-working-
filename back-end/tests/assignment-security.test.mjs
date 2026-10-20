@@ -1,12 +1,10 @@
 // node --test tests/assignment-security.test.mjs
-// MongoDB and Cloudinary are replaced by in-memory stand-ins (with a tiny
-// query matcher, shared with quiz-security.test.mjs's approach); everything
-// else is REAL: routing, auth, roles, course-access rules, validation,
-// status computation, late detection, and file streaming headers.
+// MongoDB and Cloudinary are replaced by in-memory stand-ins. Everything
+// else is REAL: routing, auth, roles, course access, validation, assignment
+// lifecycle, Drive-link handling, grading, and submission status computation.
 import test, { before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import fs from 'node:fs';
 
 process.env.JWT_SECRET = 'test-secret';
 process.env.NODE_ENV = 'test';
@@ -66,7 +64,7 @@ const users = new Map(Object.entries({
   admin: 'ADMIN', t1: 'TEACHER', t2: 'TEACHER', s1: 'USER', s2: 'USER', outsider: 'USER', subscriber: 'USER',
 }).map(([k, role]) => [S(ids[k]), { _id: ids[k], role, ...(k === 'subscriber' ? { subscription: { status: 'active' } } : {}) }]));
 
-let courseA, courseB, assignments, submissions, enrollments, uploaded, destroyed, failUploadAt;
+let courseA, courseB, assignments, submissions, enrollments, uploaded, destroyed;
 
 Assignment.prototype.save = async function () { await this.validate(); if (!assignments.includes(this)) assignments.push(this); return this; };
 Assignment.prototype.deleteOne = async function () { assignments.splice(assignments.indexOf(this), 1); };
@@ -95,15 +93,11 @@ User.findById = (id) => q(users.get(S(id)) || null);
 Enrollment.exists = async (f) => (enrollments.find((e) => String(e.user) === String(f.user) && String(e.course) === String(f.course) && e.status === 'active') ? { _id: 1 } : null);
 Enrollment.find = (f) => q(enrollments.filter((e) => matches(e, f)));
 
-let fileServer, fileBase;
-cloudinary.v2.uploader.upload = async (_path, opts) => {
-  if (failUploadAt !== undefined && uploaded.length === failUploadAt) throw new Error('boom');
-  const r = { public_id: `${opts.folder}/${opts.public_id}`, opts };
-  uploaded.push(r);
-  return r;
+cloudinary.v2.uploader.upload = async (...args) => {
+  uploaded.push({ args });
+  return { public_id: 'unexpected-cloudinary-upload' };
 };
 cloudinary.v2.uploader.destroy = async (id, opts) => { destroyed.push({ id, opts }); return { result: 'ok' }; };
-cloudinary.v2.url = (id, opts) => { globalThis.__lastUrlOpts = opts; return `${fileBase}/${id}`; };
 
 // ---- app -------------------------------------------------------------------
 const app = express();
@@ -114,17 +108,14 @@ app.use(errorMiddleware);
 
 let server, root;
 before(async () => {
-  fileServer = http.createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end('%PDF-fake-bytes'); });
-  await new Promise((r) => fileServer.listen(0, r));
-  fileBase = `http://127.0.0.1:${fileServer.address().port}`;
   server = http.createServer(app);
   await new Promise((r) => server.listen(0, r));
   root = `http://127.0.0.1:${server.address().port}/api/v1/assignments`;
 });
-after(() => { server.close(); fileServer.close(); });
+after(() => { server.close(); });
 
 beforeEach(() => {
-  assignments = []; submissions = []; enrollments = []; uploaded = []; destroyed = []; failUploadAt = undefined;
+  assignments = []; submissions = []; enrollments = []; uploaded = []; destroyed = [];
   courseA = new Course({ title: 'Physics Batch 2026', description: 'A description that is long enough.', category: 'Science', createdBy: 'T1', instructor: ids.t1 });
   courseB = new Course({ title: 'Chemistry Batch 2026', description: 'A description that is long enough.', category: 'Science', createdBy: 'T2', instructor: ids.t2 });
   enrollments.push({ user: ids.s1, course: courseA._id, status: 'active' }, { user: ids.s2, course: courseA._id, status: 'active' });
@@ -143,19 +134,12 @@ const callJson = async (method, path, who, body) => {
   let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
   return { status: res.status, body: json, text };
 };
-const form = (fields = {}, files = [], fileField = 'attachments') => {
-  const fd = new FormData();
-  Object.entries(fields).forEach(([k, v]) => fd.append(k, String(v)));
-  files.forEach((f) => fd.append(fileField, new Blob([f.content ?? 'x'], { type: f.type || 'application/pdf' }), f.name));
-  return fd;
+const callForm = async (method, path, who, fields = {}, files = [], fileField) => {
+  // Compatibility helper for the older test call sites. The API is JSON-only;
+  // tests that specifically check multipart rejection issue raw FormData below.
+  if (files.length) throw new Error('Drive-link-only API does not accept file blobs in callForm');
+  return callJson(method, path, who, fields);
 };
-const callForm = async (method, path, who, fields, files, fileField) => {
-  const res = await fetch(`${root}${path}`, { method, ...(who ? { headers: cookie(who) } : {}), body: form(fields, files, fileField) });
-  const text = await res.text();
-  let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
-  return { status: res.status, body: json, text };
-};
-const pdf = (name = 'homework.pdf') => ({ name, content: '%PDF-1.4 test' });
 
 const createAssignment = async (over = {}, who = 't1') => {
   const r = await callForm('POST', '/', who, { courseId: S(courseA._id), title: 'Essay 1', description: 'Write about photosynthesis', dueDate: '2026-10-01T00:00:00.000Z', totalMarks: 20, ...over });
@@ -450,24 +434,27 @@ test('submissions list is manager-only and includes every student, with computed
   assert.deepEqual(detail.body.assignment.submissionCounts, { total: 2, submitted: 0, late: 1, graded: 1 });
 });
 
-// =========================== FILE STREAMING ============================
-test('assignment attachment: streamed to anyone with course access, blocked for outsiders', async () => {
-  const a = await createAssignment({}, 't1');
-  // re-create WITH an attachment (courseId path already covered above; add one with a file here)
-  const withFile = await callForm('POST', '/', 't1', { courseId: S(courseA._id), title: 'With attachment' }, [pdf('brief.pdf')]);
-  const fileId = withFile.body.assignment.attachments[0]._id;
-  const aid = withFile.body.assignment._id;
+// =========================== GOOGLE DRIVE LINKS ============================
+test('assignment stores and returns a Google Drive link without Cloudinary upload', async () => {
+  const driveLink = 'https://drive.google.com/file/d/1AssignmentMaterial/view';
+  const created = await callJson('POST', '/', 't1', {
+    courseId: S(courseA._id),
+    title: 'With Drive material',
+    driveLink,
+  });
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.body.assignment.driveLink, driveLink);
+  assert.equal(S(assignments[0].course), S(courseA._id));
+  assert.equal(assignments[0].driveLink, driveLink);
+  assert.deepEqual(created.body.assignment.attachments, []);
+  assert.equal(uploaded.length, 0);
 
-  const ok = await fetch(`${root}/${aid}/attachments/${fileId}`, { headers: cookie('s1') });
-  assert.equal(ok.status, 200);
-  assert.equal(await ok.text(), '%PDF-fake-bytes');
-  assert.equal(globalThis.__lastUrlOpts.type, 'authenticated');
-
-  const blocked = await fetch(`${root}/${aid}/attachments/${fileId}`, { headers: cookie('outsider') });
+  const visible = await callJson('GET', `/${created.body.assignment._id}`, 's1');
+  assert.equal(visible.status, 200);
+  assert.equal(visible.body.assignment.driveLink, driveLink);
+  const blocked = await callJson('GET', `/${created.body.assignment._id}`, 'outsider');
   assert.equal(blocked.status, 404);
 });
-
-
 
 // =========================== VALIDATION ============================
 test('validation errors return 400 with a readable message', async () => {
@@ -479,24 +466,42 @@ test('validation errors return 400 with a readable message', async () => {
   assert.equal(assignments.length, 0);
 });
 
-test('an unsupported file extension is rejected (multer fileFilter -> 400 via error middleware)', async () => {
-  const r = await callForm('POST', '/', 't1', { courseId: S(courseA._id), title: 'x' }, [{ name: 'virus.exe', type: 'application/octet-stream' }]);
-  assert.equal(r.status, 400);
-  assert.match(r.body.message, /Unsupported file type/);
+test('multipart file uploads are rejected; teachers must provide a Google Drive link', async () => {
+  const fd = new FormData();
+  fd.append('courseId', S(courseA._id));
+  fd.append('title', 'No file upload');
+  fd.append('attachments', new Blob(['fake file'], { type: 'application/pdf' }), 'notes.pdf');
+  const response = await fetch(`${root}/`, { method: 'POST', headers: cookie('t1'), body: fd });
+  const body = await response.json();
+  assert.equal(response.status, 400);
+  assert.match(body.message, /Google Drive|Drive link|File uploads are not supported/i);
+  assert.equal(assignments.length, 0);
+  assert.equal(uploaded.length, 0);
 });
 
 // =========================== EDIT / DELETE ============================
-test('editing: metadata, adding and removing attachments all work', async () => {
-  const a = await callForm('POST', '/', 't1', { courseId: S(courseA._id), title: 'Essay', totalMarks: 20 }, [pdf('rubric.pdf')]);
-  const id = a.body.assignment._id;
-  const oldFileId = a.body.assignment.attachments[0]._id;
-  const oldPublicId = assignments[0].attachments[0].public_id;
+test('editing updates assignment metadata and Google Drive link without Cloudinary upload', async () => {
+  const originalLink = 'https://drive.google.com/file/d/oldRubric/view';
+  const nextLink = 'https://docs.google.com/document/d/newRubric/edit';
+  const created = await callJson('POST', '/', 't1', {
+    courseId: S(courseA._id),
+    title: 'Essay',
+    totalMarks: 20,
+    driveLink: originalLink,
+  });
+  assert.equal(created.status, 201, created.text);
+  const id = created.body.assignment._id;
 
-  const edited = await callForm('PUT', `/${id}`, 't1', { title: 'Essay v2', removeAttachmentIds: JSON.stringify([oldFileId]) }, [pdf('rubric-v2.pdf')]);
+  const edited = await callJson('PUT', `/${id}`, 't1', {
+    title: 'Essay v2',
+    driveLink: nextLink,
+  });
   assert.equal(edited.status, 200, edited.text);
   assert.equal(edited.body.assignment.title, 'Essay v2');
-  assert.deepEqual(edited.body.assignment.attachments.map((f) => f.originalName), ['rubric-v2.pdf']);
-  assert.equal(destroyed.some((d) => d.id === oldPublicId), true);
+  assert.equal(edited.body.assignment.driveLink, nextLink);
+  assert.equal(assignments[0].driveLink, nextLink);
+  assert.equal(uploaded.length, 0);
+  assert.equal(destroyed.length, 0);
 });
 
 test('delete refuses when submissions exist unless ?force=true', async () => {
